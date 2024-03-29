@@ -20,234 +20,200 @@ library(geojsonio)
 library(leaflet)
 library(ggplot2)
 library(shiny)
+library(shinydashboard)
 ```
 
-```{r}
-#covid_hospitalizations_raw <- read.csv("./data/owid-covid-data.csv")
-covid_hospitalizations_raw <- read.csv("./data/covid-hospitalizations.csv")
-locations <- read.csv("./data/locations.csv")
+```{r }
+covid_hospitalizations_raw <- read.csv("./data/owid-covid-data.csv") #el pesado.
+#covid_hospitalizations_raw <- read.csv("./data/covid-hospitalizations.csv")
+
 data("World")
 ```
 
 ```{r}
-# Load necessary libraries
-library(shiny)
-library(shinydashboard)
+covid_hospitalizations <- covid_hospitalizations_raw %>%
+  mutate(date = as.Date(date)) %>%
+  # Filtrar para que la fecha esté entre 2020-01-01 y 2021-01-01
+  #dplyr::filter(date >= "2020-01-01" & date <= "2024-01-01") %>%
+  # Seleccionar columnas específicas
+  #dplyr::select(iso_code, location, date, total_cases, total_cases_per_million, new_cases_per_million, total_deaths, new_deaths, icu_patients_per_million, weekly_icu_admissions_per_million, weekly_hosp_admissions_per_million, total_tests_per_thousand) %>%
+  # Convertir a formato largo
+  dplyr::select(-tests_units) %>%
+  pivot_longer(cols = -c(1:4), 
+               names_to = "indicator", 
+               values_to = "value")
+```
 
-initial_value <- "Daily ICU occupancy"
-#initial_value <- "icu_patients"
-# Round a number to the nearest multiple of 10000
-round_to_100 <- function(x) {
-  100 * ceiling(x / 100)
-}
+```{r}
+initial_value <- "total_cases"
 
 my_palette <- colorRampPalette(c("lightyellow", "darkgreen"))(6)
-filtered_legend <- covid_hospitalizations_raw %>%
-      dplyr::filter(indicator == initial_value)
+
+#filtered_legend <- covid_hospitalizations %>%
+#  dplyr::filter(indicator == initial_value)
 
 # UI code
 ui <- dashboardPage(
   dashboardHeader(title = "COVID-19 App"),
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Inicio", tabName = "home", icon = icon("home")),
-      menuItem("Visualización de indicadores", tabName = "page1", icon = icon("stats", lib = "glyphicon")),
-      menuItem("I+D COVID-19", tabName = "page2", icon = icon("info"))
+      menuItem("Visualización de indicadores", tabName = "page1", icon = icon("stats", lib = "glyphicon"))
     )
   ),
   dashboardBody(
     tabItems(
       # Home page
-      tabItem(tabName = "home",
-              fluidRow(
-                box(title = h2("Infromación sobre el COVID-19"),
-                    width = 12)
-              ),
-              fluidPage(
-                htmlOutput("informacion_covid"))
-              
-      ),
       # Page 1 content
       tabItem(tabName = "page1",
               fluidRow(
-              column(width = 4,
-                selectInput("indicator_selector", "Selecciona el indicador a representar:",
-                       choices = unique(covid_hospitalizations_raw$indicator))),
-              column(width = 4,
-                uiOutput("date_slider_ui")),
-              column(width = 4,
-                selectInput("continent", "Selecciona un continente:",
-                  choices = c("Africa", "Asia", "Europe", "North America", "Oceania", "South America")))
+                column(width = 4,
+                       selectInput("indicator_selector", "Selecciona el indicador a representar:",
+                                   choices = unique(covid_hospitalizations$indicator))),
+                column(width = 4,
+                       uiOutput("date_slider_ui")),
+                column(width = 4,
+                       selectInput("continent", "Selecciona un continente:",
+                                   choices = c("World", "Africa", "Asia", "Europe", "North America", "Oceania", "South America"))
+                )
               ),
-                tmapOutput("my_tmap"),
- 
               fluidRow(
-              box(column(width = 12,
-                plotOutput("selected_country_plot")), width = 12))
-              
+                column(width = 4),
+                column(width = 4,
+                       uiOutput("interval_slider_ui")),  # Añadido el uiOutput para el sliderInput del intervalo
+                column(width = 4),
+                column(width = 4,
+                       uiOutput("step_slider_ui")),  # Añadido el uiOutput para el sliderInput del paso
+                column(width = 12,
+                       actionButton("save_date_button", "Guardar como fecha inicial"))  # Botón para guardar la fecha inicial
               ),
-      # Page 2 content
-      tabItem(tabName = "page2",
-        fluidPage(
-          titlePanel("Descubrimientos y Avances en la Lucha contra el COVID-19"),
-          
-          fluidRow(
-            column(6,
-                   wellPanel(
-                      tags$a(href = "https://www.nationalgeographic.com.es/ciencia/asi-funcionan-vacunas-arn-mensajero_16221", 
-                             tags$img(src = "https://th.bing.com/th/id/OIP.Y3AB96afVEf95vosovQ8IwAAAA?rs=1&pid=ImgDetMain", width = "100%"),
-                     p(h5("El desarrollo de la vacuna mRNA ha sido un avance crucial en la lucha contra el COVID-19. Esta tecnología ha demostrado ser segura y efectiva en la prevención de la enfermedad."))
-                   ))
-            ),
-            
-            column(6,
-                   wellPanel(
-                     tags$a(href ="https://www.factcheck.org/es/2021/03/scicheck-nuevos-hallazgos-cientificos-sobre-uso-de-mascarillas-y-covid-19/" , 
-                           tags$img(src = "https://th.bing.com/th/id/OIP.PZhLcBePCCgdPNne-gRfbQHaEK?rs=1&pid=ImgDetMain", width = "100%"),
-                     p(h5("Los estudios han demostrado que el uso de mascarillas puede reducir significativamente la transmisión del virus. Esto ha llevado a una mayor aceptación y uso de mascarillas en la comunidad."))
-                   ))
-            )
-          ),
-          
-          fluidRow(
-            column(6,
-                   wellPanel(
-                     tags$a(href = "https://covidblog.oregon.gov/tratamiento-con-anticuerpos-monoclonales-para-covid-19/#:~:text=La%20evidencia%20preliminar%20sugiere%20que%20los%20mAb%20administrados,la%20hospitalizaci%C3%B3n%20y%20evitar%20que%20la%20enfermedad%20progrese.", 
-                           tags$img(src = "https://gacetamedica.com/wp-content/uploads/2021/11/GettyImages-1297158114.jpg", width = "100%"),
-                     p(h5("Los tratamientos con anticuerpos monoclonales han mostrado ser eficaces en pacientes con COVID-19 grave. Estos tratamientos pueden ayudar a reducir la gravedad de la enfermedad y la necesidad de hospitalización."))
-                   ))
-            ),
-            
-            column(6,
-                   wellPanel(
-                     tags$a(href="https://www.isciii.es/InformacionCiudadanos/DivulgacionCulturaCientifica/DivulgacionISCIII/Paginas/Divulgacion/InformeCoronavirusSecuenciacion.aspx#:~:text=La%20secuenciaci%C3%B3n%20gen%C3%B3mica%20del%20SARS-CoV-2%20ha%20permitido%20averiguar,para%20el%20futuro%20desarrollo%20de%20f%C3%A1rmacos%20y%20vacunas.",
-                          tags$img(src = "https://th.bing.com/th/id/OIP.yxngBx-ii6jMOUq9xMly-gHaEK?rs=1&pid=ImgDetMain", width = "100%"),
-                     p(h5("Los avances en la secuenciación genómica han permitido un seguimiento más preciso de las variantes del virus. Esto es crucial para entender cómo evoluciona el virus y desarrollar estrategias de prevención y tratamiento adecuadas."))
-                   ))
-            )
-          )
+              fluidRow(
+                leafletOutput("my_tmap", width = "100%")  # Ajustar el ancho del mapa al 100%
+              ),
+              fluidRow(
+                box(column(width = 12,
+                            plotOutput("selected_country_plot")), width = 12))
+              
+      )
+      
         )
       )
     )
-  )
-)
+  
+
 
 # Server code (not necessary for this example)
-server <- function(input, output, session) {output$informacion_covid <- renderUI({
-    HTML("
-      <p>El COVID-19 es una enfermedad causada por el coronavirus SARS-CoV-2. Desde su aparición en diciembre de 2019, ha tenido un impacto significativo a nivel mundial.</p>
-
-      <h2>Síntomas</h2>
-
-      <p>Los síntomas comunes del COVID-19 incluyen:</p>
-
-      <ol>
-        <li>Fiebre</li>
-        <li>Tos seca</li>
-        <li>Fatiga</li>
-        <li>Dificultad para respirar</li>
-      </ol>
-
-      <h2>Transmisión</h2>
-
-      <p>El virus se transmite principalmente a través de:</p>
-
-      <ul>
-        <li>Gotículas respiratorias cuando una persona infectada tose, estornuda o habla.</li>
-        <li>Contacto cercano con una persona infectada.</li>
-        <li>Superficies contaminadas.</li>
-      </ul>
-
-      <h2>Prevención</h2>
-
-      <p>Para prevenir la propagación del COVID-19, se recomienda:</p>
-
-      <ul>
-        <li>Lavarse las manos con frecuencia con agua y jabón.</li>
-        <li>Usar mascarillas en lugares públicos.</li>
-        <li>Mantener la distancia física con otras personas.</li>
-        <li>Evitar tocarse la cara con las manos sin lavar.</li>
-        <li>Ventilar los espacios cerrados.</li>
-      </ul>
-
-      <h2>Vacunación</h2>
-
-      <p>La vacunación es una herramienta clave en la lucha contra el COVID-19. Las vacunas autorizadas han demostrado ser seguras y efectivas para prevenir la enfermedad grave y reducir la transmisión.</p>
-
-      <h1>Conclusiones</h1>
-
-      <p>El COVID-19 continúa siendo un desafío global, pero con medidas preventivas adecuadas y la vacunación masiva, podemos controlar su propagación y proteger a nuestras comunidades.</p>
-    ")
-})
-
-observe({
+# Server code (no es necesario para este ejemplo)
+server <- function(input, output, session) {
+  output$informacion_covid <- renderUI({
+  })
+  
+  # Crear un valor reactivo para almacenar la fecha inicial
+  initial_date <- reactiveVal(as.Date("2020-01-06"))
+  
+  output$informacion_covid <- renderUI({
+  })
+  
+  observe({
     # Filter available dates based on selected indicator
     selected_indicator <- input$indicator_selector
-    
   })
   
   output$date_slider_ui <- renderUI({
     sliderInput("date_slider", label = "Selecciona la fecha:",
-                min = as.Date("2021-01-01"),
-                max = as.Date("2022-01-01"),
-                value = as.Date("2021-01-01"),
-                step = 1, animate = 
-                            animationOptions(
-                              interval = 2000,
-                              loop = FALSE,
-                              playButton = NULL,
-                              pauseButton = NULL)
-    
-)
+                min = as.Date("2020-01-06"),
+                max = as.Date("2024-01-01"),
+                value = initial_date(),  # Utilizar la fecha inicial almacenada
+                step = 1,
+                animate = animationOptions(
+                  interval = input$interval_slider,  # Utiliza el valor del intervalo del slider
+                  loop = FALSE,
+                  playButton = NULL,
+                  pauseButton = NULL
+                )
+    )
+  })
+  
+  # Agrega el sliderInput para controlar el intervalo
+  output$interval_slider_ui <- renderUI({
+    sliderInput("interval_slider", label = "Selecciona el intervalo de actualización para la animación (en ms). ⚠️ Valores bajos pueden no ser soportados por su equipo.",
+                min = 500,
+                max = 5000,
+                value = 1000,
+                step = 100)
+  })
+  
+  # Observar el botón para guardar la fecha inicial
+  observeEvent(input$save_date_button, {
+    initial_date(input$date_slider)  # Guardar la fecha actual del slider como fecha inicial
   })
   
   observeEvent(input$continent, {
-    # Define coordinates for each continent
-    continent_coords <- list(
-      Africa = c(0, 20),
-      Asia = c(35, 100),
-      Europe = c(50, 10),
-      "North America" = c(40, -100),
-      Oceania = c(-25, 135),
-      "South America" = c(-10, -60)
-    )
-    
-    # Get selected continent coordinates
-    coords <- continent_coords[[input$continent]]
-    
-    # Update map view to zoom to the selected continent
-    leafletProxy("my_tmap") %>%
-      setView(lng = coords[2], lat = coords[1], zoom = 3)
-  })
+  # Define coordinates for each continent
+  continent_coords <- list(
+    World = c(0, -20),
+    Africa = c(0, 20),
+    Asia = c(35, 100),
+    Europe = c(50, 10),
+    "North America" = c(40, -100),
+    Oceania = c(-25, 135),
+    "South America" = c(-10, -60)
+  )
+  
+  # Get selected continent coordinates
+  coords <- continent_coords[[input$continent]]
+  
+  # Set default zoom
+  zoom <- 2.5
+  
+  # Adjust zoom if continent is "World"
+  if (input$continent == "World") {
+    zoom <- 1
+  }
+  
+  # Update map view to zoom to the selected continent
+  leafletProxy("my_tmap") %>%
+    setView(lng = coords[2], lat = coords[1], zoom = zoom)
+})
   
   output$my_tmap <- renderTmap({
     data("World")
+    
+    # Filter data based on selected continent
+    continent <- input$continent
+    if (continent != "World") {
+      World <- World[World$continent == continent, ]
+    }
+    
     tm_shape(World, projection = "+proj=robin") +
       tm_borders(zindex = 666)
   })
   
-  observeEvent(c(input$indicator_selector, input$date_slider), {
-    req(input$indicator_selector, input$date_slider)
+  observeEvent(c(input$indicator_selector, input$date_slider, input$continent), {
+    req(input$indicator_selector, input$date_slider, input$continent)
+    
     # Filter data based on selected indicator and date
     selected_indicator <- input$indicator_selector
     selected_date <- input$date_slider
-    
-    filtered_data <- covid_hospitalizations_raw %>%
+    continent <- input$continent
+
+    filtered_data <- covid_hospitalizations %>%
       filter(indicator == selected_indicator & date == selected_date)
+
     
-    filtered_legend <- covid_hospitalizations_raw %>%
-      filter(indicator == selected_indicator)
-    legend_breaks <- seq(min(filtered_legend$value), round_to_100(max(filtered_legend$value)), length.out = 6)
+    if (continent != "World") {
+      filtered_data <- filtered_data %>%
+        dplyr::filter(continent == continent)
+      
+      World <- World[World$continent == continent, ]
+    }
     
-    # Join with world data
-    World_dataset <- inner_join(World, filtered_data, by = c("name" = "entity"))
-    
-    # Create map
+    World_dataset <- inner_join(World, filtered_data, by = c("name" = "location"))
+
     tmapProxy("my_tmap", session, {
       tm_remove_layer(666) +
         tm_shape(World_dataset, projection = "+proj=robin") + 
-          tm_polygons("value", legend.title = selected_indicator, palette = my_palette, breaks = legend_breaks, zindex = 666) + 
-          tm_style("cobalt")
+        tm_polygons("value", legend.title = selected_indicator, palette = my_palette, zindex = 666) + 
+        tm_style("cobalt")
     })
   })
   
@@ -260,7 +226,7 @@ observe({
     # Filter data for the selected country
     selected_indicator <- input$indicator_selector
     
-    selected_country_data <- covid_hospitalizations_raw %>%
+    selected_country_data <- covid_hospitalizations %>%
       filter(iso_code == clicked_country & indicator == selected_indicator)
     selected_country_data$date <- as.Date(selected_country_data$date)
     
@@ -268,24 +234,14 @@ observe({
     ggplot(selected_country_data, aes(x = date, y = value)) +
       geom_line() + 
       labs(title = paste("Serie temporal de", clicked_country),
-            x = "Fecha", y = selected_indicator) +
+           x = "Fecha", y = selected_indicator) +
       scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m-%d") +
       theme(axis.text.x = element_text(angle = 45, hjust = 1))
   })
-
-
 }
 
-# Run the application
+# Ejecutar la aplicación
 shinyApp(ui, server)
-
 ```
 
-```{r}
-round_to_10000 <- function(x) {
-  10000 * ceiling(x / 10000)
-}
-
-round_to_10000(13000)
-```
 

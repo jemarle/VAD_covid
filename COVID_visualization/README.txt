@@ -1,1 +1,3 @@
+Se recomienda tener el .Rproj donde quiera ejecutarse para que la creación de la carpeta '/data' se haga de manera más sencilla. Esta se creará a la hora de descargar el dataset actualizado (ver chunk correspondiente en el código). Así pues, se necesitará tener conexión a Internet si no se dispone de ese archivo en la ruta indicada en el código.
+
 Para correr la aplicación dar a 'Run All' en el .Rmd disponible.

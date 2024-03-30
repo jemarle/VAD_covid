@@ -1,0 +1,305 @@
+---
+title: "Proyecto: Visualización Espacial Covid-19"
+author: "Jesús Martínez Leal"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    echo: yes
+    number_sections: no
+    theme: readable
+    toc: yes
+subtitle: Máster Ciencia de Datos UV
+---
+
+```{r setup, cache = F, echo = F, message = F, warning = F, tidy = F}
+# Configuración general de chunks
+library(knitr)
+options(width = 100)
+knitr::opts_chunk$set(echo = F, message = T, error = F, warning = F, comment = NA, dpi = 100, tidy = T, cache.path = '.cache/', fig.path = './figure/', include = F, fig.pos = "H", fig.align = "center")
+```
+
+Como es habitual, cargamos las librerías que necesitamos al inicio del documento.
+
+```{r librerias, message = T, include = F, echo = F}
+# Carga de librerías necesarias con pacman
+if (!require(pacman)) {
+  install.packages("pacman")
+  library(pacman)
+}
+pacman::p_load(ggmap, dplyr, tidyr, tmap, maps, geospatial, raster, tmaptools, leaflet, geojsonio, ggplot2, shiny, shinydashboard)
+```
+
+```{r dataset_actualizado}
+dataset_url <- "https://covid.ourworldindata.org/data/owid-covid-data.csv"
+
+data_dir <- "data"
+
+if (!file.exists(data_dir)) {
+  dir.create(data_dir)
+}
+
+file_path <- file.path(data_dir, "owid-covid-data.csv")
+
+download.file(dataset_url, destfile = file_path, mode = "wb")
+```
+
+```{r dataset_variables, eval = TRUE}
+covid_hospitalizations_raw <- read.csv("./data/owid-covid-data.csv") #el pesado.
+
+data("World")
+```
+
+```{r preprocesado_dataset}
+covid_hospitalizations <- covid_hospitalizations_raw %>%
+  mutate(date = as.Date(date)) %>%
+  dplyr::select(-tests_units) %>%
+  pivot_longer(cols = -c(1:4), 
+               names_to = "indicator", 
+               values_to = "value")
+```
+
+```{r app}
+# indicador inicial
+initial_value <- "total_cases"
+
+# paleta para la leyenda
+my_palette <- colorRampPalette(c("lightyellow", "darkgreen"))(6)
+
+
+# Interfaz de usuario
+ui <- dashboardPage(
+  dashboardHeader(title = "COVID-19 App"),
+  dashboardSidebar(
+    sidebarMenu(
+      menuItem("Acerca de", tabName = "about", icon = icon("info-circle")),
+      menuItem("Visualización de indicadores", tabName = "var_vis", icon = icon("map"))
+    )
+  ),
+  dashboardBody(
+    tabItems(
+      # Primera página de "ABOUT"
+      tabItem(tabName = "about",
+        fluidRow(
+          column(width = 12,
+                 h2(strong("INFORMACIÓN BÁSICA SOBRE LA APLICACIÓN"), style = "font-family: 'Arial Black', Gadget, sans-serif;")),
+          column(width = 12,
+                 p("Esta aplicación proporciona visualizaciones interactivas de datos relacionados con COVID-19. Para correr la aplicación debe simplemente darse a ", strong("Run All"), " para correr todos los chunks del .Rmd. Los datos se pueden encontrar en la URL:"),
+                 tags$a(href = "https://github.com/owid/covid-19-data/tree/master/public/data", "https://github.com/owid/covid-19-data/tree/master/public/data")
+              ),
+          column(width = 12, 
+                 p("Los datos se irán actualizando automáticamente cada vez que se corra la aplicación de nuevo (ver chunk llamado dataset_actualizado en el código).")),
+          column(width = 12,
+                 p("Podrá modificarse:")),
+          column(width = 12,
+                 tags$ol(
+                   tags$li(strong("Indicador a representar:"), " utilizando un selectInput()."),
+                   tags$li(strong("Fecha del mapa:"), " utilizando un sliderInput(). Además, se incluye un botón de ", strong("Play"), " para una generación continua de los mapas en cada día. Puede además variarse el intervalo de actualización con otro deslizador abajo. Más allá de esto, se cuenta con un botón de ", strong("Guardado de fecha inicial"), ", que servirá para tener un backup de la Fecha para cuando se quiera cambiar ese intervalo de actualización."),
+                   tags$li(strong("Continente:"), " seleccionando un continente con un selectInput() podrá enfocarse nuestro estudio en un continente u otro."),
+                   tags$li(strong("Serie temporal del país."), "Pinchando sobre un país podrá verse la serie temporal de la variable seleccionada en todo el histórico."),
+                   tags$li(strong("Capas de visualización."), "Se encuentran disponibles el WorldGrayCanvas, OpenStreetMap y WorldTopoMap.")
+                 )
+                ),
+          column(width = 12,
+                 h2(strong("Sobre COVID-19"), style = "font-family: 'Arial Black', Gadget, sans-serif;")),
+          column(width = 12,
+                 p("COVID-19 es una enfermedad infecciosa causada por el coronavirus SARS-CoV-2. Ha tenido un gran impacto en la salud pública y la economía global."),
+                 img(src = "https://www.efsa.europa.eu/sites/default/files/styles/lg_col_12_16x9/public/2023-02/coronavirus-shutterstock_1621031059_0.jpg.webp?itok=fXkpcpzy", style = "width:100%;max-width:500px;height:auto;"),
+                 hr(),
+                 p("Para obtener más información sobre COVID-19, visite fuentes confiables como la Organización Mundial de la Salud (OMS) o los Centros para el Control y la Prevención de Enfermedades (CDC)."),
+                 
+                 tags$ol(
+                   tags$li(a("Info OMS Covid-19", href = "https://www.who.int/es/health-topics/coronavirus#tab=tab_1")),
+                   tags$li(a("Info CDC Covid-19", href = "https://espanol.cdc.gov/coronavirus/2019-ncov/index.html")),
+                   tags$li(a("Info Ministerio de Sanidad de España", href = "https://www.sanidad.gob.es/areas/alertasEmergenciasSanitarias/alertasActuales/nCov/home.htm"))
+                  )
+                )
+          ),
+        
+          fluidRow(
+            column(width = 12,
+                   img(src = "https://crisanlaboral.es/wp-content/uploads/2020/09/adhesivos-antideslizantes-permanentes-covid-crisan-laboral-10.jpg", style = "width:100%;max-width:250px;margin-bottom:40px;")),
+          column(width = 12, 
+                 h2(strong("Información Adicional"), style = "font-family: 'Arial Black', Gadget, sans-serif;")),
+          column(width = 12,
+                 p(strong("Autor: Jesús Martínez Leal"))),
+          column(width = 12,
+                 p("Esta aplicación ha sido creada como parte del proyecto de Visualización Espacial en R de la asignatura de Visualización Avanzada de Datos. Se han probado con un Intel Core i5-13400F las cuestiones de rendimiento, obteniéndose resultados buenos en la carga incluso con el valor del intervalo de actualización a 500 ms."))
+          )
+    ),
+      # Segunda página (Visualización de variables)
+      tabItem(tabName = "var_vis",
+              fluidRow(
+                column(width = 4,
+                       selectInput("indicator_selector", "Selecciona el indicador a representar:",
+                                   choices = unique(covid_hospitalizations$indicator))),
+                column(width = 4,
+                       uiOutput("date_slider_ui")),
+                column(width = 4,
+                       selectInput("continent", "Selecciona un continente:", 
+                                   choices = c("World", "Africa", "Asia", "Europe", "North America", "Oceania", "South America"))
+                )
+              ),
+              fluidRow(
+                column(width = 4),
+                column(width = 8,
+                       actionButton("save_date_button", "Guardar como fecha inicial"))),
+              fluidRow(
+                column(width = 4),
+                column(width = 4,
+                       uiOutput("interval_slider_ui")),  
+                column(width = 4),
+                column(width = 4,
+                       uiOutput("step_slider_ui")) 
+              ),
+              fluidRow(
+                leafletOutput("my_tmap", width = "100%")
+              ),
+              fluidRow(
+                box(column(width = 12,
+                            plotOutput("selected_country_plot")), width = 12))
+      )
+    )
+  ), 
+  skin = "black" # coloreado de negro la barra
+)
+
+# Parte del server
+server <- function(input, output, session) {
+  output$informacion_covid <- renderUI({
+  })
+  
+  # Valor reactivo para almacenar la fecha
+  initial_date <- reactiveVal(as.Date("2020-01-06"))
+
+  
+  observe({
+    # Selector de indicador
+    selected_indicator <- input$indicator_selector
+  })
+  
+  max_date <- max(as.Date(covid_hospitalizations$date)) # Máximo para la fecha
+  
+  output$date_slider_ui <- renderUI({
+    sliderInput("date_slider", label = "Selecciona la fecha:",
+                min = as.Date("2020-01-06"),
+                max = max_date,
+                value = initial_date(), 
+                step = 1,
+                animate = animationOptions(
+                  interval = input$interval_slider,  # Utiliza el valor del intervalo del slider
+                  loop = FALSE,
+                  playButton = NULL,
+                  pauseButton = NULL
+                )
+    )
+  })
+  
+  # Intervalo de actualización
+  output$interval_slider_ui <- renderUI({
+    sliderInput("interval_slider", label = "Selecciona el intervalo de actualización para la animación (en ms). ⚠️ Valores bajos pueden no ser soportados por su equipo.",
+                min = 500,
+                max = 5000,
+                value = 1000,
+                step = 100)
+  })
+  
+  # Observar el botón para guardar la fecha inicial
+  observeEvent(input$save_date_button, {
+    initial_date(input$date_slider) 
+  })
+  
+  observeEvent(input$continent, {
+  # Coordenadas de continente (manual)
+  continent_coords <- list(
+    World = c(0, -20),
+    Africa = c(0, 20),
+    Asia = c(35, 100),
+    Europe = c(50, 10),
+    "North America" = c(40, -100),
+    Oceania = c(-25, 135),
+    "South America" = c(-10, -60)
+  )
+
+  coords <- continent_coords[[input$continent]]
+  
+  # Ajuste de zoom manual
+  zoom <- 2.5
+  
+  if (input$continent == "World") {
+    zoom <- 1
+  }
+  
+  # Actualizar mapa al seleccionar continente
+  leafletProxy("my_tmap") %>%
+    setView(lng = coords[2], lat = coords[1], zoom = zoom)
+})
+  
+  output$my_tmap <- renderTmap({
+    data("World")
+    
+    # Filtrado de datos según continente
+    continent <- input$continent
+    if (continent != "World") {
+      World <- World[World$continent == continent, ]
+    }
+    
+    tm_shape(World, projection = "+proj=robin") +
+      tm_borders(zindex = 666)
+  })
+  
+  observeEvent(c(input$indicator_selector, input$date_slider, input$continent), {
+    req(input$indicator_selector, input$date_slider, input$continent)
+    
+    # Filtrado de datos según indicador, fecha y continente
+    selected_indicator <- input$indicator_selector
+    selected_date <- input$date_slider
+    continent <- input$continent
+
+    filtered_data <- covid_hospitalizations %>%
+      filter(indicator == selected_indicator & date == selected_date)
+
+    # Filtrado para el continente en los datos de 'World'
+    if (continent != "World") {
+      filtered_data <- filtered_data %>%
+        dplyr::filter(continent == continent)
+      
+      World <- World[World$continent == continent, ]
+    }
+    
+    World_dataset <- inner_join(World, filtered_data, by = c("name" = "location"))
+    
+    # Actualización del mapa completo
+    tmapProxy("my_tmap", session, {
+      tm_remove_layer(666) +
+        tm_shape(World_dataset, projection = "+proj=robin") + 
+        tm_polygons("value", legend.title = selected_indicator, palette = my_palette, zindex = 666) + 
+        tm_style("cobalt")
+    })
+  })
+  
+  output$selected_country_plot <- renderPlot({
+    req(input$my_tmap_shape_click)
+    
+    # Creación de la serie temporal según el país clickeado
+    clicked_country <- input$my_tmap_shape_click$id
+    
+    selected_indicator <- input$indicator_selector
+    
+    selected_country_data <- covid_hospitalizations %>%
+      filter(iso_code == clicked_country & indicator == selected_indicator)
+    selected_country_data$date <- as.Date(selected_country_data$date)
+    
+    ggplot(selected_country_data, aes(x = date, y = value)) +
+      geom_line() + 
+      labs(title = paste("Serie temporal de", clicked_country),
+           x = "Fecha", y = selected_indicator) +
+      scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m-%d") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+}
+
+# Aplicación de shiny (llamada)
+shinyApp(ui, server)
+```
+
+

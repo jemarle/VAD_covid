@@ -1,0 +1,1 @@
+Para correr la aplicación dar a 'Run All' en el .Rmd disponible.
